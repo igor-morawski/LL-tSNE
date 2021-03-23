@@ -1,4 +1,5 @@
-# python tsne.py /tmp2/igor/LL-tSNE/features/PUR50_epoch_107-1.pkl --output_dir=tsne 
+# python tsne.py /tmp2/igor/LL-tSNE/features/S_R50_epoch_121-1.pkl --output_dir=tsne 
+
 import argparse
 import tqdm
 from PIL import Image
@@ -59,7 +60,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('pickled_features')
     parser.add_argument('--output_dir', type=str)
-    parser.add_argument('--lr', default=200.0, type=float)
+    parser.add_argument('--lr', default=200, type=int)
+    parser.add_argument('--perplexity', default=None, type=int)
     parser.add_argument('--cat', default=None, type=str)
     args = parser.parse_args()
 
@@ -99,7 +101,8 @@ if __name__ == "__main__":
     y = np.hstack([cats_name2int(cat_name) for cat_name in y])
 
     cat_prefix = "all" if not args.cat else args.cat 
-    for perplexity in [10, 30, 50]:
+    perplexities = [args.perplexity] if args.perplexity else [10, 30, 50]
+    for perplexity in perplexities:
         tsne = TSNE(learning_rate=args.lr, perplexity=perplexity, **TSNE_DEFAULT).fit_transform(x)
         scatter(tsne, y, cats)
         plt.savefig(op.join(plot_dir, f"{cat_prefix}_p{perplexity}_lr{int(args.lr)}.png"))

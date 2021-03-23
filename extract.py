@@ -38,6 +38,7 @@ if __name__=="__main__":
     parser.add_argument('--output_dir', type=str, default="features")
     parser.add_argument('--dataset_dir', type=str)
     parser.add_argument('--feature_level', type=int, default=-1)
+    parser.add_argument('--samples_per_gpu', type=int, default=1)
     args = parser.parse_args()
     assert op.exists(args.dataset_dir)
     config_file = args.config
@@ -52,11 +53,15 @@ if __name__=="__main__":
     cfg = Config.fromfile(args.config)
     # build the model and load checkpoint, and the backbone
     model = build_detector(cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
+    # print(model.backbone.conv1.weight[0][0])
+    # print(model.backbone.unet.conv.weight[0][0])
 
     fp16_cfg = cfg.get('fp16', None)
     if fp16_cfg is not None:
         wrap_fp16_model(model)
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
+    # print(model.backbone.conv1.weight[0][0])
+    # print(model.backbone.unet.conv.weight[0][0])
     model = model.backbone  #only backbone
 
     cfg.data.test["type"] = "tSNE_dummy224"
@@ -68,7 +73,7 @@ if __name__=="__main__":
     dataset = build_dataset(cfg.data.test)
     data_loader = build_dataloader(
         dataset,
-        samples_per_gpu=1,
+        samples_per_gpu=args.samples_per_gpu,
         workers_per_gpu=1,
         dist=False,
         shuffle=False)
@@ -84,14 +89,16 @@ if __name__=="__main__":
     model.eval()
     results = []
     for sample in tqdm.tqdm(data_loader):
-        features = model(sample['img'][0])[args.feature_level]
-        features = features.cpu().detach().numpy()
-
-        img_metas = {}
-        img_metas_dc = sample['img_metas'][0]._data[0][0]
-        for key in img_metas_dc.keys():
-            img_metas[key] = img_metas_dc[key]
-        results.append({"features": features, "img_metas":img_metas, "feature_level": args.feature_level})
+        tmp_results = []
+        features_batch = model(sample['img'][0])[args.feature_level]
+        features_batch = features_batch.cpu().detach().numpy()
+        for idx, features in enumerate(features_batch): 
+            img_metas = {}
+            img_metas_dc = sample['img_metas'][0]._data[0][idx]
+            for key in img_metas_dc.keys():
+                img_metas[key] = img_metas_dc[key]
+            tmp_results.append({"features": features, "img_metas":img_metas, "feature_level": args.feature_level})
+        results.extend(tmp_results)
     with open(output_filepath, "wb") as handle:
         pickle.dump(results, handle)
     print(output_filepath)
