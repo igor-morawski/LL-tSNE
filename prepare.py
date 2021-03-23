@@ -2,7 +2,7 @@
 Resize while keeping aspect ratio 
 # https://stackoverflow.com/questions/44231209/resize-rectangular-image-to-square-keeping-ratio-and-fill-background-with-black/44231784
 """
-# python prepare.py auto_labeler/0 auto_labeler/1 --min_size=224 --extension=png --output_dir=resized
+# python prepare.py auto_labeler/0 auto_labeler/1 --size=224 --extension=png --output_dir=resized
 import argparse
 import tqdm
 from PIL import Image
@@ -22,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument('input_dir', nargs="+")
     parser.add_argument('--output_dir', type=str)
     parser.add_argument('--extension', help='File extension, e.g. "png"')
-    parser.add_argument('--min_size', type=int)
+    parser.add_argument('--size', type=int)
     args = parser.parse_args()
     paths = []
     for input_dir in args.input_dir:
@@ -30,15 +30,18 @@ if __name__ == "__main__":
 
     if not op.exists(args.output_dir):
         os.mkdir(args.output_dir)
-
+    assert op.exists(args.output_dir)
+    
     lines = []
     for path in tqdm.tqdm(paths):
         file_name = op.split(path)[-1]
         out_file_name = op.join(args.output_dir, file_name)
         if not op.exists(out_file_name):
             img = Image.open(path)
-            img = make_square(img, min_size=args.min_size)
+            img = make_square(img, min_size=args.size).resize((args.size,args.size))
             img.save(out_file_name)
+            assert img.size == (args.size, args.size)
+
         if "_low_" in file_name: 
             is_lowlight = 1
         else:

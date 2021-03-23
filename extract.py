@@ -5,6 +5,7 @@ import argparse
 import os
 import os.path as osp
 
+import tqdm
 import torch
 from mmdet.apis import init_detector, async_inference_detector
 from mmdet.utils.contextmanagers import concurrent
@@ -14,6 +15,7 @@ from mmcv.parallel import MMDataParallel
 
 from mmdet.apis import single_gpu_test
 
+import pickle
 import cv2
 import numpy as np
 import mmcv
@@ -35,6 +37,7 @@ if __name__=="__main__":
     parser.add_argument('checkpoint', help='checkpoint file')
     parser.add_argument('--output_dir', type=str, default="features")
     parser.add_argument('--dataset_dir', type=str)
+    parser.add_argument('--feature_level', type=int, default=-1)
     args = parser.parse_args()
     assert op.exists(args.dataset_dir)
     config_file = args.config
@@ -44,17 +47,24 @@ if __name__=="__main__":
     if not op.exists(args.output_dir):
         os.mkdir(args.output_dir)
     output_filepath = op.join(args.output_dir, op.split(
-        args.checkpoint)[-1].split(".")[-2]+".pkl")
-
+        args.checkpoint)[-1].split(".")[-2]+str(args.feature_level)+".pkl")
+        
     cfg = Config.fromfile(args.config)
     # build the model and load checkpoint, and the backbone
-    model = build_detector(cfg.model, train_cfg=None, test_cfg=cfg.test_cfg).backbone #only backbone
+    model = build_detector(cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
 
     fp16_cfg = cfg.get('fp16', None)
     if fp16_cfg is not None:
         wrap_fp16_model(model)
     checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
+    model = model.backbone  #only backbone
 
+    cfg.data.test["type"] = "tSNE_dummy224"
+    cfg.data.test["ann_file"] = "/tmp2/igor/LL-tSNE/resized/tsne_dummy_anno.csv"
+    cfg.data.test["img_prefix"] = "/tmp2/igor/LL-tSNE/resized"
+    for d in cfg.data.test["pipeline"]:
+        if "img_shape" in d.keys():
+            d["img_shape"] = (224, 224)
     dataset = build_dataset(cfg.data.test)
     data_loader = build_dataloader(
         dataset,
@@ -72,4 +82,16 @@ if __name__=="__main__":
 
     model = MMDataParallel(model, device_ids=[0])
     model.eval()
-    print(classes)
+    results = []
+    for sample in tqdm.tqdm(data_loader):
+        features = model(sample['img'][0])[args.feature_level]
+        features = features.cpu().detach().numpy()
+
+        img_metas = {}
+        img_metas_dc = sample['img_metas'][0]._data[0][0]
+        for key in img_metas_dc.keys():
+            img_metas[key] = img_metas_dc[key]
+        results.append({"features": features, "img_metas":img_metas, "feature_level": args.feature_level})
+    with open(output_filepath, "wb") as handle:
+        pickle.dump(results, handle)
+    print(output_filepath)
