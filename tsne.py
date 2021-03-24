@@ -1,5 +1,6 @@
 # python tsne.py /tmp2/igor/LL-tSNE/features/S_R50_epoch_121-1.pkl --output_dir=tsne 
-
+# python tsne.py /tmp2/igor/LL-tSNE/features_manual/COCO_R50_epoch_1-1.pkl --output_dir=manual --lr=10 --perplexity=5
+# https://towardsdatascience.com/how-to-tune-hyperparameters-of-tsne-7c0596a18868
 import argparse
 import tqdm
 from PIL import Image
@@ -19,12 +20,13 @@ import sklearn
 from sklearn.manifold import TSNE
 import seaborn as sns
 
-TSNE_DEFAULT = {"n_iter" : 2*5000, "random_state" : 1}
+TSNE_DEFAULT = {"n_iter" : 3*5000, "random_state" : 3, "init":"pca"}
 
-def scatter(x, colors, cats):
+def scatter(x, colors, cats, alpha=1):
     # https://github.com/oreillymedia/t-SNE-tutorial
     # We choose a color palette with seaborn.
-    palette = np.array(sns.color_palette("hls", len(cats)))
+    rgb_palette = np.array(sns.color_palette("hls", len(cats)))
+    palette = np.c_[rgb_palette, alpha*np.ones(rgb_palette.shape[0])]
 
     # We create a scatter plot.
     f = plt.figure(figsize=(8, 8))
@@ -54,26 +56,7 @@ def scatter(x, colors, cats):
     ax.legend(handles=legend_elements, loc='lower right')
     return f, ax, sc, txts
 
-if __name__ == "__main__":
-                
-    # https://github.com/oreillymedia/t-SNE-tutorial
-    parser = argparse.ArgumentParser(description='')
-    parser.add_argument('pickled_features')
-    parser.add_argument('--output_dir', type=str)
-    parser.add_argument('--lr', default=200, type=int)
-    parser.add_argument('--perplexity', default=None, type=int)
-    parser.add_argument('--cat', default=None, type=str)
-    args = parser.parse_args()
-
-    assert 10.0 <= args.lr <= 1000.0
-    if not op.exists(args.output_dir):
-        os.mkdir(args.output_dir)
-    assert op.exists(args.output_dir)
-    plot_dir = op.join(args.output_dir, op.split(args.pickled_features)[-1].split(".")[0])
-    if not op.exists(plot_dir):
-        os.mkdir(plot_dir)
-    assert op.exists(plot_dir)
-
+def read_pickle(args):
     x = []
     y = []
     cats = set()
@@ -88,10 +71,6 @@ if __name__ == "__main__":
             cats.add(cat_name)
             x.append(features.flatten())
             y.append(cat_name)
-            # if len(cats) >= 4:
-            #     break
-            # if idx > 5:
-            #     break
     cats = tuple(sorted(list(cats)))
     for cat in cats:
         cat_n = y.count(cat)
@@ -99,12 +78,36 @@ if __name__ == "__main__":
     cats_name2int = cats.index
     x = np.vstack(x)
     y = np.hstack([cats_name2int(cat_name) for cat_name in y])
+    return x, y, cats
+
+
+if __name__ == "__main__":
+                
+    # https://github.com/oreillymedia/t-SNE-tutorial
+    parser = argparse.ArgumentParser(description='')
+    parser.add_argument('pickled_features')
+    parser.add_argument('--output_dir', type=str)
+    parser.add_argument('--lr', default=200, type=int)
+    parser.add_argument('--perplexity', default=None, type=int)
+    parser.add_argument('--cat', default=None, type=str)
+    args = parser.parse_args()
+
+    assert 1.0 <= args.lr <= 1000.0
+    if not op.exists(args.output_dir):
+        os.mkdir(args.output_dir)
+    assert op.exists(args.output_dir)
+    plot_dir = op.join(args.output_dir, op.split(args.pickled_features)[-1].split(".")[0])
+    if not op.exists(plot_dir):
+        os.mkdir(plot_dir)
+    assert op.exists(plot_dir)
+
+    x, y, cats = read_pickle(args)
 
     cat_prefix = "all" if not args.cat else args.cat 
     perplexities = [args.perplexity] if args.perplexity else [10, 30, 50]
     for perplexity in perplexities:
         tsne = TSNE(learning_rate=args.lr, perplexity=perplexity, **TSNE_DEFAULT).fit_transform(x)
-        scatter(tsne, y, cats)
+        scatter(tsne, y, cats, alpha=0.5)
         plt.savefig(op.join(plot_dir, f"{cat_prefix}_p{perplexity}_lr{int(args.lr)}.png"))
         plt.savefig(op.join(plot_dir, f"{cat_prefix}_p{perplexity}_lr{int(args.lr)}.svg"))
         

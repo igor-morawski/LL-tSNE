@@ -3,6 +3,8 @@ Resize while keeping aspect ratio
 # https://stackoverflow.com/questions/44231209/resize-rectangular-image-to-square-keeping-ratio-and-fill-background-with-black/44231784
 """
 # python prepare.py auto_labeler/0 auto_labeler/1 --size=224 --extension=png --output_dir=resized
+# python prepare.py coco --size=224 --extension=png --output_dir=coco_resized
+# python prepare.py manual_labeled/0 manual_labeled/1 --size=224 --extension=png --output_dir=manual_resized
 import argparse
 import tqdm
 from PIL import Image

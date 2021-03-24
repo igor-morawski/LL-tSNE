@@ -35,12 +35,11 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Use mmdet backbone to extract features')
     parser.add_argument('config', help='train config file path')
     parser.add_argument('checkpoint', help='checkpoint file')
+    parser.add_argument('dataset_dir', help='annotation file')
     parser.add_argument('--output_dir', type=str, default="features")
-    parser.add_argument('--dataset_dir', type=str)
     parser.add_argument('--feature_level', type=int, default=-1)
     parser.add_argument('--samples_per_gpu', type=int, default=1)
     args = parser.parse_args()
-    assert op.exists(args.dataset_dir)
     config_file = args.config
     checkpoint_file = args.checkpoint
     device = 'cuda:0'
@@ -65,8 +64,8 @@ if __name__=="__main__":
     model = model.backbone  #only backbone
 
     cfg.data.test["type"] = "tSNE_dummy224"
-    cfg.data.test["ann_file"] = "/tmp2/igor/LL-tSNE/resized/tsne_dummy_anno.csv"
-    cfg.data.test["img_prefix"] = "/tmp2/igor/LL-tSNE/resized"
+    cfg.data.test["ann_file"] = op.join(args.dataset_dir,"tsne_dummy_anno.csv")
+    cfg.data.test["img_prefix"] = args.dataset_dir
     for d in cfg.data.test["pipeline"]:
         if "img_shape" in d.keys():
             d["img_shape"] = (224, 224)
