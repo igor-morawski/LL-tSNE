@@ -69,14 +69,19 @@ def read_pickle(args):
             if args.cat and (args.cat not in cat_name):
                 continue
             cats.add(cat_name)
-            x.append(features.flatten())
+            x.append(features)
             y.append(cat_name)
     cats = tuple(sorted(list(cats)))
     for cat in cats:
         cat_n = y.count(cat)
         print(f"{cat} - {cat_n} samples")
     cats_name2int = cats.index
-    x = np.vstack(x)
+    x = np.array(x)
+    B, C, H, W = x.shape
+    std=np.moveaxis(x, 0, 1).std(axis=(1,2,3))
+    for c in range(C):
+        x[:, c, :, :]/=std[c]
+    x = x.reshape(B, -1)
     y = np.hstack([cats_name2int(cat_name) for cat_name in y])
     return x, y, cats
 
@@ -102,12 +107,12 @@ if __name__ == "__main__":
     assert op.exists(plot_dir)
 
     x, y, cats = read_pickle(args)
-
     cat_prefix = "all" if not args.cat else args.cat 
     perplexities = [args.perplexity] if args.perplexity else [10, 30, 50]
     for perplexity in perplexities:
         tsne = TSNE(learning_rate=args.lr, perplexity=perplexity, **TSNE_DEFAULT).fit_transform(x)
         scatter(tsne, y, cats, alpha=0.5)
+        print(op.join(plot_dir, f"{cat_prefix}_p{perplexity}_lr{int(args.lr)}.png"))
         plt.savefig(op.join(plot_dir, f"{cat_prefix}_p{perplexity}_lr{int(args.lr)}.png"))
         plt.savefig(op.join(plot_dir, f"{cat_prefix}_p{perplexity}_lr{int(args.lr)}.svg"))
         

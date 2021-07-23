@@ -30,6 +30,13 @@ from mmdet.datasets import (build_dataloader, build_dataset,
                             replace_ImageToTensor)
 from mmdet.models import build_detector, build_backbone, build_neck
 
+
+activation = {}
+def get_activation(name):
+    def hook(model, input, output):
+        activation[name] = output.detach()
+    return hook
+
 # async def main():
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Use mmdet backbone to extract features')
@@ -39,16 +46,23 @@ if __name__=="__main__":
     parser.add_argument('--output_dir', type=str, default="features")
     parser.add_argument('--feature_level', type=int, default=-1)
     parser.add_argument('--samples_per_gpu', type=int, default=1)
+    parser.add_argument('--part', choices=["backbone", "neck", "unet"], default="backbone")
+    parser.add_argument('--downsample', type=int, default=0, help="Downsample by 2^(--downsample)")
     args = parser.parse_args()
     config_file = args.config
-    checkpoint_file = args.checkpoint
     device = 'cuda:0'
 
     if not op.exists(args.output_dir):
         os.mkdir(args.output_dir)
-    output_filepath = op.join(args.output_dir, op.split(
-        args.checkpoint)[-1].split(".")[-2]+str(args.feature_level)+".pkl")
-        
+    prefix=""
+    if args.part != "backbone":
+        prefix=args.part+"_"
+    if args.checkpoint != "pretrained":
+        output_filepath = op.join(args.output_dir, prefix+op.split(
+            args.checkpoint)[-1].split(".")[-2]+str(args.feature_level)+".pkl")
+    else:
+        output_filepath = op.join(args.output_dir, prefix+args.checkpoint+str(args.feature_level)+".pkl")
+    print(f"Results will be saved to {output_filepath}")
     cfg = Config.fromfile(args.config)
     # build the model and load checkpoint, and the backbone
     model = build_detector(cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
@@ -58,10 +72,30 @@ if __name__=="__main__":
     fp16_cfg = cfg.get('fp16', None)
     if fp16_cfg is not None:
         wrap_fp16_model(model)
-    checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
+    if args.checkpoint != "pretrained":
+        checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
     # print(model.backbone.conv1.weight[0][0])
     # print(model.backbone.unet.conv.weight[0][0])
-    model = model.backbone  #only backbone
+    print(model)
+    if args.part == "backbone":
+        model = model.backbone  #only backbone
+    elif args.part == "neck":
+        model = torch.nn.Sequential(model.backbone, model.neck)
+    elif args.part == "unet":
+        model = model.backbone.unet #only unet
+        print(model)
+        # XXX theres probably a better way to do this?
+        if args.feature_level == 0:
+            layer = "enc4mish2"
+            model.encoder4.enc4mish2.register_forward_hook(get_activation(layer))
+        elif args.feature_level == 1:
+            layer = "bottleneckmish2"
+            model.bottleneck.bottleneckmish2.register_forward_hook(get_activation(layer))
+        elif args.feature_level == 2:
+            layer = "dec1mish2"
+            model.decoder1.dec1mish2.register_forward_hook(get_activation(layer))
+        else:
+            raise ValueError
 
     cfg.data.test["type"] = "tSNE_dummy224"
     cfg.data.test["ann_file"] = op.join(args.dataset_dir,"tsne_dummy_anno.csv")
@@ -77,19 +111,21 @@ if __name__=="__main__":
         dist=False,
         shuffle=False)
 
-    if 'CLASSES' in checkpoint['meta']:
-        model.CLASSES = checkpoint['meta']['CLASSES']
-    else:
-        model.CLASSES = dataset.CLASSES
-    
-    classes = checkpoint['meta']['CLASSES']
 
     model = MMDataParallel(model, device_ids=[0])
     model.eval()
     results = []
     for sample in tqdm.tqdm(data_loader):
         tmp_results = []
-        features_batch = model(sample['img'][0])[args.feature_level]
+        if args.part != "unet":
+            features_batch = model(sample['img'][0])[args.feature_level]
+        else:
+            activation = {}
+            _ = model(sample['img'][0])
+            features_batch = activation[layer]
+        if args.downsample:
+            B, C, H, W = features_batch.size()
+            features_batch = torch.nn.functional.interpolate(features_batch, size=(H//(2**args.downsample), W//(2**args.downsample)), mode='bilinear')
         features_batch = features_batch.cpu().detach().numpy()
         for idx, features in enumerate(features_batch): 
             img_metas = {}
